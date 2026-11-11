@@ -1,16 +1,22 @@
 # Hosting This Website on GitHub Pages
 
-This site is plain HTML, CSS and JavaScript, so GitHub Pages can serve it as-is: no build step needed.
+This site (System Design Notes) is plain HTML, CSS and JavaScript, so GitHub Pages can serve it as-is: no build step needed.
 
 ## Files
 
 ```
 .
-├── index.html   # the page (GitHub Pages serves this at the root URL)
-├── style.css    # styles, including dark mode
-├── script.js    # theme toggle, mobile menu, contact form
-└── HOSTING.md   # this guide
+├── index.html              # app shell (GitHub Pages serves this at the root URL)
+├── assets/css/app.css      # all styles, light + dark themes, mobile layout
+├── assets/js/registry.js   # list of every topic and problem
+├── assets/js/app.js        # router, sidebar, search, progress, code tabs, diagrams
+├── assets/js/widgets.js    # interactive widgets
+├── content/                # one file per page (hld/, problems/, lld/)
+├── tools/check.js          # content validator: node tools/check.js
+└── HOSTING.md              # this guide
 ```
+
+`CLAUDE.md` holds local project notes and is listed in `.gitignore`, so it is never pushed.
 
 ## Prerequisites
 

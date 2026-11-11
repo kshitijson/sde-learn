@@ -2,110 +2,158 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="A simple static website hosted on GitHub Pages." />
-  <title>My Website</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#f7f7fb" id="theme-color" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="SD Notes" />
+  <title>System Design Notes</title>
+  <meta name="description" content="Interactive System Design notes for SDE 1 and SDE 2 interviews: HLD, LLD, diagrams, widgets and practice problems with code in Java, Python, C++, JavaScript and Go." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Crect x='7' y='7' width='8' height='8' rx='2' fill='white'/%3E%3Crect x='17' y='17' width='8' height='8' rx='2' fill='white'/%3E%3Cpath d='M11 15v6h6' stroke='white' stroke-width='2' fill='none'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    // Apply saved theme before first paint (avoids a flash of the wrong theme)
+    (function () {
+      var t = null;
+      try { t = JSON.parse(localStorage.getItem("sdn:v1") || "{}").theme; } catch (e) {}
+      if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", t);
+      var m = document.getElementById("theme-color"); if (m) m.content = t === "dark" ? "#0b0d13" : "#f7f7fb";
+    })();
+  </script>
+  <link rel="stylesheet" href="assets/css/app.css" />
 </head>
 <body>
-  <header class="site-header">
-    <div class="container nav">
-      <a href="#" class="logo">MySite</a>
-      <nav>
-        <ul class="nav-links" id="nav-links">
-          <li><a href="#about">About</a></li>
-          <li><a href="#projects">Projects</a></li>
-          <li><a href="#contact">Contact</a></li>
-        </ul>
-      </nav>
-      <div class="nav-actions">
-        <button id="theme-toggle" class="icon-btn" aria-label="Toggle dark mode">🌙</button>
-        <button id="menu-toggle" class="icon-btn menu-btn" aria-label="Open menu" aria-expanded="false">☰</button>
+  <!-- Shared SVG defs (arrowheads for hand-drawn diagrams) -->
+  <svg class="svg-defs" aria-hidden="true" focusable="false">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="s-arrowhead" />
+      </marker>
+      <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="s-arrowhead-accent" />
+      </marker>
+    </defs>
+  </svg>
+
+  <div class="read-progress" id="read-progress"></div>
+
+  <header class="topbar">
+    <button class="icon-btn only-mobile" id="menu-btn" aria-label="Open navigation" aria-expanded="false">
+      <span data-icon="menu"></span>
+    </button>
+    <a href="#/" class="brand" aria-label="System Design Notes home">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><b></b></span>
+      <span class="brand-text">System Design <em>Notes</em></span>
+    </a>
+
+    <button class="search-trigger" id="search-btn" aria-label="Search (Ctrl K)">
+      <span data-icon="search"></span>
+      <span class="search-placeholder">Search topics &amp; problems…</span>
+      <kbd class="hide-mobile" id="search-kbd">Ctrl K</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <div class="progress-pill hide-mobile" id="progress-pill" title="Your progress">
+        <svg viewBox="0 0 36 36" class="ring-mini"><circle cx="18" cy="18" r="15" class="ring-bg"/><circle cx="18" cy="18" r="15" class="ring-fg" id="pill-ring"/></svg>
+        <span id="pill-text">0 / 0</span>
       </div>
+      <label class="lang-select hide-mobile" title="Code language (applies everywhere)">
+        <span data-icon="code"></span>
+        <select id="lang-select" aria-label="Code language"></select>
+      </label>
+      <button class="icon-btn hide-mobile" id="shortcuts-btn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"><span data-icon="keyboard"></span></button>
+      <button class="icon-btn" id="theme-btn" aria-label="Toggle dark mode" title="Toggle theme (T)"><span data-icon="moon"></span></button>
     </div>
   </header>
 
-  <main>
-    <section class="hero">
-      <div class="container">
-        <h1>Hi, I'm <span class="accent">Your Name</span></h1>
-        <p class="tagline">I build things for the web. This site is hosted for free on GitHub Pages.</p>
-        <div class="hero-buttons">
-          <a href="#projects" class="btn btn-primary">See my work</a>
-          <a href="#contact" class="btn btn-outline">Get in touch</a>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar" aria-label="Topics">
+      <div class="sidebar-filters">
+        <div class="seg" role="group" aria-label="Filter by level" id="level-filter">
+          <button data-level="all">All</button>
+          <button data-level="s1">SDE 1</button>
+          <button data-level="s2">SDE 2</button>
         </div>
+        <label class="switch">
+          <input type="checkbox" id="show-soon" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>Show upcoming</span>
+        </label>
       </div>
-    </section>
+      <nav id="nav"></nav>
+    </aside>
+    <div class="scrim" id="scrim"></div>
 
-    <section id="about" class="section">
-      <div class="container">
-        <h2>About</h2>
-        <p>
-          Write a short introduction about yourself here — what you do, what you're learning,
-          and what you care about. Keep it to two or three sentences.
-        </p>
-        <ul class="skills">
-          <li>HTML</li>
-          <li>CSS</li>
-          <li>JavaScript</li>
-          <li>Git &amp; GitHub</li>
-        </ul>
+    <main class="main" id="main" tabindex="-1">
+      <div id="view"></div>
+    </main>
+  </div>
+
+  <!-- Search palette -->
+  <div class="modal" id="search-modal" role="dialog" aria-modal="true" aria-label="Search" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="palette">
+      <div class="palette-input">
+        <span data-icon="search"></span>
+        <input id="search-input" type="text" aria-label="Search" placeholder="Search topics, problems, tags… (try “redis” or “kafka”)" autocomplete="off" spellcheck="false" />
+        <kbd>Esc</kbd>
       </div>
-    </section>
-
-    <section id="projects" class="section section-alt">
-      <div class="container">
-        <h2>Projects</h2>
-        <div class="cards">
-          <article class="card">
-            <h3>Project One</h3>
-            <p>A short description of what this project does and the problem it solves.</p>
-            <a href="#" class="card-link">View project →</a>
-          </article>
-          <article class="card">
-            <h3>Project Two</h3>
-            <p>A short description of what this project does and the problem it solves.</p>
-            <a href="#" class="card-link">View project →</a>
-          </article>
-          <article class="card">
-            <h3>Project Three</h3>
-            <p>A short description of what this project does and the problem it solves.</p>
-            <a href="#" class="card-link">View project →</a>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section id="contact" class="section">
-      <div class="container">
-        <h2>Contact</h2>
-        <p>Want to say hello? Send me a message.</p>
-        <form id="contact-form" class="contact-form">
-          <label>
-            Name
-            <input type="text" name="name" required />
-          </label>
-          <label>
-            Email
-            <input type="email" name="email" required />
-          </label>
-          <label>
-            Message
-            <textarea name="message" rows="4" required></textarea>
-          </label>
-          <button type="submit" class="btn btn-primary">Send</button>
-          <p id="form-status" class="form-status" role="status"></p>
-        </form>
-      </div>
-    </section>
-  </main>
-
-  <footer class="site-footer">
-    <div class="container">
-      <p>© <span id="year"></span> Your Name · Hosted on GitHub Pages</p>
+      <div class="palette-results" id="search-results" role="listbox"></div>
+      <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
     </div>
-  </footer>
+  </div>
 
-  <script src="script.js"></script>
+  <!-- Shortcuts -->
+  <div class="modal" id="shortcuts-modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="dialog">
+      <div class="dialog-head"><h3>Keyboard shortcuts</h3><button class="icon-btn" data-close aria-label="Close"><span data-icon="close"></span></button></div>
+      <dl class="shortcuts">
+        <dt><kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> or <kbd>/</kbd></dt><dd>Search</dd>
+        <dt><kbd>N</kbd> / <kbd>P</kbd></dt><dd>Next / previous page</dd>
+        <dt><kbd>M</kbd></dt><dd>Mark page complete</dd>
+        <dt><kbd>T</kbd></dt><dd>Toggle dark mode</dd>
+        <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Switch code language</dd>
+        <dt><kbd>G</kbd> <kbd>H</kbd></dt><dd>Go home</dd>
+        <dt><kbd>?</kbd></dt><dd>Show this panel</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- Diagram lightbox -->
+  <div class="modal" id="lightbox" role="dialog" aria-modal="true" aria-label="Diagram viewer" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="lightbox">
+      <div class="lightbox-bar">
+        <span id="lightbox-title">Diagram</span>
+        <div>
+          <button class="icon-btn" id="lb-zoom-out" aria-label="Zoom out">−</button>
+          <button class="icon-btn" id="lb-zoom-reset" aria-label="Reset zoom">1:1</button>
+          <button class="icon-btn" id="lb-zoom-in" aria-label="Zoom in">+</button>
+          <button class="icon-btn" data-close aria-label="Close"><span data-icon="close"></span></button>
+        </div>
+      </div>
+      <div class="lightbox-stage" id="lightbox-stage"><div class="lightbox-inner" id="lightbox-inner"></div></div>
+      <div class="lightbox-hint">Scroll to zoom · drag to pan · Esc to close</div>
+    </div>
+  </div>
+
+  <!-- Mobile: "On this page" bottom sheet -->
+  <button class="toc-fab" id="toc-fab" type="button" aria-label="On this page" hidden><span data-icon="list"></span><span>Contents</span></button>
+  <div class="modal sheet-modal" id="toc-sheet" role="dialog" aria-modal="true" aria-label="On this page" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="sheet"><div class="sheet-grip"></div><div class="sheet-head"><b>On this page</b><button class="icon-btn" data-close aria-label="Close"><span data-icon="close"></span></button></div><div class="sheet-body" id="toc-sheet-body"></div></div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="assets/js/registry.js"></script>
+  <script src="assets/js/widgets.js"></script>
+  <script src="assets/js/app.js"></script>
 </body>
 </html>
