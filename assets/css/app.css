@@ -978,3 +978,54 @@ button, a, summary, .chip, input[type="range"] { touch-action: manipulation; }
 .prose figure.svg-fig { overflow-x: auto; }
 .prose figure.svg-fig.scrolls svg { max-width: none; }
 .prose figure.svg-fig.scrolls .fig-scroll-hint { display: block; }
+
+/* handshake */
+.hs-bar { display: flex; height: 44px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.hs-seg { display: grid; place-items: center; min-width: 4px; color: #fff; font-size: 12px; transition: flex 0.35s ease; overflow: hidden; white-space: nowrap; }
+.hs-seg b { font-weight: 650; padding: 0 4px; }
+.hs-dns { background: #0ea5e9; } .hs-tcp { background: #f59e0b; } .hs-tls { background: #a855f7; } .hs-http { background: #10b981; } .hs-srv { background: #64748b; }
+.hs-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--text-2); }
+.hs-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.hs-legend i { width: 12px; height: 12px; border-radius: 3px; }
+.hs-table td, .hs-table th { padding: 8px 12px; font-size: 13.5px; border-bottom: 1px solid var(--border); text-align: left; }
+.hs-table { width: 100%; border-collapse: collapse; }
+.hs-table th { background: var(--surface-2); color: var(--text-2); font-size: 12.5px; }
+.hs-table tr:last-child td { border-bottom: 0; }
+.hs-cur td { background: var(--accent-soft); font-weight: 650; color: var(--accent-text); }
+.widget table:not(.hs-table) { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.widget table:not(.hs-table) th, .widget table:not(.hs-table) td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; }
+.widget table:not(.hs-table) th { background: var(--surface-2); color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
+.widget .table-wrap table { min-width: 420px; }
+
+/* polling */
+.pl-wrap { overflow-x: auto; }
+.pl-svg { width: 100%; min-width: 560px; height: auto; display: block; font-family: var(--font); }
+.pl-ev { fill: var(--amber); }
+.pl-guide { stroke: var(--amber); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.55; }
+.pl-axis { stroke: var(--border-strong); }
+.pl-req { stroke: var(--accent); stroke-width: 2; }
+.pl-del { fill: var(--green); stroke: var(--surface); stroke-width: 1.5; }
+.pl-conn { fill: color-mix(in srgb, var(--accent) 16%, transparent); stroke: color-mix(in srgb, var(--accent) 40%, transparent); }
+.pl-name { font-size: 12.5px; font-weight: 600; }
+
+/* quorum */
+.qr-replicas { display: flex; flex-wrap: wrap; gap: 10px; }
+.qr-rep { position: relative; display: grid; justify-items: center; gap: 2px; width: 88px; padding: 10px 6px; border-radius: 12px; border: 2px solid var(--border); background: var(--surface-2); transition: all 0.25s; }
+.qr-rep b { font-family: var(--font-display); font-size: 20px; }
+.qr-rep small { font-size: 11px; color: var(--muted); }
+.qr-name { font-size: 11.5px; color: var(--text-2); font-weight: 600; }
+.qr-rep.fresh { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+.qr-rep.stale { background: var(--surface-2); }
+.qr-rep.read { box-shadow: 0 0 0 3px var(--accent); }
+.qr-rep.wrote { box-shadow: 0 0 0 3px var(--green); }
+.qr-result { min-height: 24px; font-size: 14px; }
+
+/* sharding */
+.sh-shards { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; }
+.sh-shard { display: grid; justify-items: center; gap: 6px; padding: 12px 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); text-align: center; transition: all 0.25s; }
+.sh-shard.hot { background: var(--red-soft); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.sh-name { font-size: 12.5px; font-weight: 650; }
+.sh-meter { width: 28px; height: 110px; border-radius: 8px; background: var(--surface-3); display: flex; align-items: flex-end; overflow: hidden; }
+.sh-meter i { display: block; width: 100%; background: linear-gradient(0deg, var(--accent), var(--violet)); border-radius: 8px; transition: height 0.4s cubic-bezier(.2,.8,.2,1); }
+.sh-shard.hot .sh-meter i { background: var(--red); }
+.sh-pct { font-family: var(--font-display); font-size: 18px; font-weight: 700; }

@@ -509,4 +509,232 @@
     $$("[data-in]", b).forEach((i) => i.addEventListener("input", draw));
     draw();
   };
+
+  /* ---------------- 11. Connection set-up cost (DNS + TCP + TLS + HTTP) ---------------- */
+  W.handshake = function (el) {
+    const protos = { tls12: "HTTPS · TLS 1.2", tls13: "HTTPS · TLS 1.3", quic: "HTTP/3 · QUIC", zrtt: "HTTP/3 · 0-RTT resume" };
+    const rtts = [["Same city", 10], ["4G mobile", 80], ["Mumbai → Singapore", 60], ["Mumbai → US west", 230]];
+    const b = frame(el, "How long before the first byte arrives?", `
+      <div class="w-row">${Object.entries(protos).map(([k, n], i) => `<button class="chip" data-p="${k}" aria-pressed="${i === 1}">${n}</button>`).join("")}</div>
+      <div class="w-controls">${slider("rtt", "Round-trip time (RTT)", 5, 300, 5, 80)}${slider("srv", "Server think time", 0, 300, 10, 50)}</div>
+      <div class="w-row">${rtts.map(([n, v]) => `<button class="chip" data-rtt="${v}">${n} · ${v} ms</button>`).join("")}</div>
+      <div class="w-row">
+        <label class="switch"><input type="checkbox" data-dns><span class="switch-track"><span class="switch-thumb"></span></span><span>DNS already cached</span></label>
+        <label class="switch"><input type="checkbox" data-reuse><span class="switch-track"><span class="switch-thumb"></span></span><span>Reuse open connection (keep-alive)</span></label>
+      </div>
+      <div class="hs-bar" data-bar></div>
+      <div class="hs-legend" data-legend></div>
+      <div class="w-stats" data-stats></div>
+      <div class="table-wrap"><table class="hs-table" data-table></table></div>
+      <div class="w-note">Simplified: DNS costs one round trip to a nearby resolver when not cached, TCP costs 1 RTT, TLS 1.2 costs 2 RTT, TLS 1.3 costs 1, QUIC does transport and TLS together in 1, and a resumed QUIC session can send the request in the very first packet (0-RTT).</div>`);
+    let proto = "tls13";
+    const g = (id) => +$(`[data-in="${id}"]`, b).value;
+    function steps(p, rtt, srv, dnsCached, reuse) {
+      const s = [];
+      if (!reuse) {
+        if (!dnsCached) s.push(["DNS lookup", rtt, "dns"]);
+        if (p === "tls12") { s.push(["TCP handshake", rtt, "tcp"]); s.push(["TLS 1.2 handshake", 2 * rtt, "tls"]); }
+        if (p === "tls13") { s.push(["TCP handshake", rtt, "tcp"]); s.push(["TLS 1.3 handshake", rtt, "tls"]); }
+        if (p === "quic") s.push(["QUIC + TLS handshake", rtt, "tls"]);
+      }
+      s.push(["HTTP request → response", rtt, "http"]);
+      if (srv) s.push(["Server work", srv, "srv"]);
+      return s;
+    }
+    function draw() {
+      const rtt = g("rtt"), srv = g("srv"), dns = $("[data-dns]", b).checked, reuse = $("[data-reuse]", b).checked;
+      $('[data-out="rtt"]', b).textContent = rtt + " ms"; $('[data-out="srv"]', b).textContent = srv + " ms";
+      const s = steps(proto, rtt, srv, dns, reuse), total = s.reduce((a, x) => a + x[1], 0);
+      $("[data-bar]", b).innerHTML = s.map(([n, ms, c]) => `<span class="hs-seg hs-${c}" style="flex:${ms}" title="${n}: ${ms} ms"><b>${ms} ms</b></span>`).join("");
+      $("[data-legend]", b).innerHTML = s.map(([n, ms, c]) => `<span><i class="hs-${c}"></i>${n}</span>`).join("");
+      const trips = s.filter((x) => x[2] !== "srv").reduce((a, x) => a + x[1] / rtt, 0);
+      $("[data-stats]", b).innerHTML = `<div class="w-stat hl"><div class="k">Time to first byte</div><div class="v">${total} ms</div></div>
+        <div class="w-stat"><div class="k">Network round trips</div><div class="v">${trips}</div></div>
+        <div class="w-stat"><div class="k">Spent on set-up</div><div class="v">${total ? Math.round(((total - rtt - srv) / total) * 100) : 0}%</div><div class="s">before the request is even sent</div></div>`;
+      const rows = Object.entries(protos).map(([k, n]) => {
+        const t = steps(k, rtt, srv, dns, reuse).reduce((a, x) => a + x[1], 0);
+        return `<tr${k === proto ? ' class="hs-cur"' : ""}><td>${n}</td><td>${t} ms</td></tr>`;
+      });
+      $("[data-table]", b).innerHTML = `<thead><tr><th>Protocol</th><th>Time to first byte at ${rtt} ms RTT</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+    }
+    $$("[data-p]", b).forEach((c) => c.addEventListener("click", () => {
+      proto = c.dataset.p; $$("[data-p]", b).forEach((x) => x.setAttribute("aria-pressed", String(x === c)));
+      if (proto === "zrtt") { $("[data-dns]", b).checked = true; }
+      draw();
+    }));
+    $$("[data-rtt]", b).forEach((c) => c.addEventListener("click", () => { $('[data-in="rtt"]', b).value = c.dataset.rtt; draw(); }));
+    $$("[data-in], [data-dns], [data-reuse]", b).forEach((i) => i.addEventListener("input", draw));
+    draw();
+  };
+
+  /* ---------------- 12. Polling vs long polling vs SSE vs WebSocket ---------------- */
+  W.polling = function (el) {
+    const b = frame(el, "Same live updates, four ways to receive them", `
+      <div class="w-controls">${slider("int", "Short-polling interval", 1, 10, 1, 3)}${slider("ev", "Server events in 30 seconds", 1, 15, 1, 6)}</div>
+      <div class="w-row"><button class="btn sm" data-new>New random events</button><span class="w-note">◆ event happens on the server · | request sent by the client · ● update reaches the client</span></div>
+      <div class="pl-wrap" data-svg></div>
+      <div class="table-wrap"><table data-table></table></div>
+      <div class="w-note">Assumes a 100 ms round trip. A short-polling update waits until the next poll; the other three push it in about half a round trip. Long polling re-opens a request after every update, while SSE and WebSockets keep one connection open.</div>`);
+    const SPAN = 30, HALF = 0.05;
+    let seed = 7, events = [];
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    function gen() { const n = +$('[data-in="ev"]', b).value; events = Array.from({ length: n }, () => +(1 + rnd() * (SPAN - 2)).toFixed(2)).sort((a, c) => a - c); }
+    function model(kind, P) {
+      if (kind === "short") {
+        const reqs = []; for (let t = 0; t <= SPAN; t += P) reqs.push(t);
+        const del = events.map((e) => { const nxt = reqs.find((r) => r >= e); return nxt == null ? null : nxt + HALF * 2; });
+        const empty = reqs.filter((r, i) => !events.some((e) => e <= r && e > (i ? reqs[i - 1] : -1))).length;
+        return { reqs, del, empty };
+      }
+      if (kind === "long") {
+        const reqs = [0]; events.forEach((e) => reqs.push(+(e + HALF * 2).toFixed(2)));
+        return { reqs, del: events.map((e) => e + HALF), empty: 0 };
+      }
+      return { reqs: [0], del: events.map((e) => e + HALF), empty: 0 };
+    }
+    function draw() {
+      const P = +$('[data-in="int"]', b).value;
+      $('[data-out="int"]', b).textContent = P + " s"; $('[data-out="ev"]', b).textContent = events.length;
+      const kinds = [["short", "Short polling"], ["long", "Long polling"], ["sse", "Server-Sent Events"], ["ws", "WebSocket"]];
+      const W0 = 120, W1 = 660, x = (t) => W0 + (t / SPAN) * (W1 - W0), rowH = 48;
+      let svg = `<svg viewBox="0 0 680 ${40 + kinds.length * rowH}" class="pl-svg">`;
+      svg += `<text x="${W0}" y="14" class="s-muted">0 s</text><text x="${W1}" y="14" class="s-muted" text-anchor="end">${SPAN} s</text>`;
+      events.forEach((e) => { svg += `<path d="M${x(e)},20 l5,6 l-5,6 l-5,-6z" class="pl-ev"/><line x1="${x(e)}" y1="32" x2="${x(e)}" y2="${32 + kinds.length * rowH}" class="pl-guide"/>`; });
+      const rows = [];
+      kinds.forEach(([k, n], i) => {
+        const m = model(k, P), y = 40 + i * rowH + rowH / 2;
+        svg += `<text x="0" y="${y + 4}" class="s-text pl-name">${n}</text><line x1="${W0}" y1="${y}" x2="${W1}" y2="${y}" class="s-line pl-axis"/>`;
+        if (k === "sse" || k === "ws") svg += `<rect x="${W0}" y="${y - 5}" width="${W1 - W0}" height="10" rx="5" class="pl-conn"/>`;
+        m.reqs.forEach((r) => { svg += `<line x1="${x(r)}" y1="${y - 10}" x2="${x(r)}" y2="${y + 10}" class="pl-req"/>`; });
+        m.del.forEach((d) => { if (d != null && d <= SPAN) svg += `<circle cx="${x(d)}" cy="${y}" r="5" class="pl-del"/>`; });
+        const delays = m.del.map((d, j) => (d == null ? null : d - events[j])).filter((d) => d != null);
+        const avg = delays.length ? delays.reduce((a, c) => a + c, 0) / delays.length : 0;
+        rows.push(`<tr><td>${n}</td><td>${m.reqs.length}</td><td>${m.empty}</td><td>${avg < 1 ? Math.round(avg * 1000) + " ms" : avg.toFixed(1) + " s"}</td><td>${k === "ws" ? "Both ways" : k === "sse" ? "Server → client" : "Client asks"}</td></tr>`);
+      });
+      $("[data-svg]", b).innerHTML = svg + "</svg>";
+      $("[data-table]", b).innerHTML = `<thead><tr><th>Method</th><th>HTTP requests</th><th>Empty responses</th><th>Avg delay</th><th>Direction</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+    }
+    $('[data-in="int"]', b).addEventListener("input", draw);
+    $('[data-in="ev"]', b).addEventListener("input", () => { gen(); draw(); });
+    $("[data-new]", b).onclick = () => { seed = Math.floor(Math.random() * 1e6) + 1; gen(); draw(); };
+    gen(); draw();
+  };
+
+  /* ---------------- 13. Quorum reads & writes ---------------- */
+  W.quorum = function (el) {
+    const b = frame(el, "Quorums: when can a read return stale data?", `
+      <div class="w-controls">${slider("n", "Replicas (N)", 1, 7, 1, 3)}${slider("w", "Write acks needed (W)", 1, 3, 1, 2)}${slider("r", "Replicas read (R)", 1, 3, 1, 2)}</div>
+      <div class="w-row"><button class="chip" data-preset="1,1">Fast (R=1, W=1)</button><button class="chip" data-preset="q">Quorum (majority)</button><button class="chip" data-preset="all">Write all (W=N, R=1)</button></div>
+      <div class="qr-replicas" data-reps></div>
+      <div class="w-row"><button class="btn sm primary" data-write>Write a new version</button><button class="btn sm" data-read>Read</button><button class="btn sm" data-worst>Worst-case read</button></div>
+      <div class="qr-result" data-res></div>
+      <div class="w-stats" data-stats></div>`);
+    let ver = [], cur = 1, lastRead = [], lastWrite = [];
+    const g = (id) => +$(`[data-in="${id}"]`, b).value;
+    const C = (n, k) => { if (k < 0 || k > n) return 0; let r = 1; for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i; return r; };
+    function clamp() {
+      const n = g("n");
+      ["w", "r"].forEach((k) => { const i = $(`[data-in="${k}"]`, b); i.max = n; if (+i.value > n) i.value = n; });
+      if (ver.length !== n) { ver = Array(n).fill(cur); lastRead = []; lastWrite = []; $("[data-res]", b).innerHTML = ""; }
+    }
+    function pick(k, n) { const idx = [...Array(n).keys()]; for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; } return idx.slice(0, k); }
+    function draw() {
+      clamp();
+      const n = g("n"), w = g("w"), r = g("r");
+      $('[data-out="n"]', b).textContent = n; $('[data-out="w"]', b).textContent = w; $('[data-out="r"]', b).textContent = r;
+      $("[data-reps]", b).innerHTML = ver.map((v, i) => `<div class="qr-rep${v === cur ? " fresh" : " stale"}${lastRead.includes(i) ? " read" : ""}${lastWrite.includes(i) ? " wrote" : ""}">
+        <span class="qr-name">Replica ${i + 1}</span><b>v${v}</b><small>${v === cur ? "latest" : "stale"}</small></div>`).join("");
+      const overlap = r + w > n, pStale = C(n - w, r) / C(n, r);
+      $("[data-stats]", b).innerHTML = `
+        <div class="w-stat${overlap ? " hl" : ""}"><div class="k">R + W vs N</div><div class="v ${overlap ? "ok" : "bad"}">${r} + ${w} ${overlap ? ">" : "≤"} ${n}</div><div class="s">${overlap ? "read and write sets always overlap" : "a read can miss every fresh copy"}</div></div>
+        <div class="w-stat"><div class="k">Chance a random read is stale</div><div class="v">${(pStale * 100).toFixed(pStale && pStale < 0.01 ? 2 : 0)}%</div><div class="s">right after a write</div></div>
+        <div class="w-stat"><div class="k">Writes survive</div><div class="v">${n - w} down</div></div>
+        <div class="w-stat"><div class="k">Reads survive</div><div class="v">${n - r} down</div></div>`;
+    }
+    function write() {
+      const n = g("n"), w = g("w"); cur++; lastWrite = pick(w, n); lastRead = [];
+      lastWrite.forEach((i) => (ver[i] = cur));
+      $("[data-res]", b).innerHTML = `<span>Wrote <b>v${cur}</b> to ${w} of ${n} replicas and acknowledged the client. The other ${n - w} still hold old data (they'd catch up later via read repair or anti-entropy).</span>`;
+      draw();
+    }
+    function read(worst) {
+      const n = g("n"), r = g("r");
+      if (worst) { const order = [...Array(n).keys()].sort((a, c) => ver[a] - ver[c]); lastRead = order.slice(0, r); } else lastRead = pick(r, n);
+      lastWrite = [];
+      const best = Math.max(...lastRead.map((i) => ver[i])), ok = best === cur;
+      $("[data-res]", b).innerHTML = `<span class="${ok ? "ok" : "bad"}"><b>${ok ? "✓ Fresh read" : "✗ Stale read"}</b>: asked replicas ${lastRead.map((i) => i + 1).join(", ")} and took the highest version, v${best}${ok ? "" : `, but the latest is v${cur}`}.</span>`;
+      draw();
+    }
+    $$("[data-in]", b).forEach((i) => i.addEventListener("input", draw));
+    $$("[data-preset]", b).forEach((c) => c.addEventListener("click", () => {
+      const n = g("n"), p = c.dataset.preset, q = Math.floor(n / 2) + 1;
+      const [w, r] = p === "q" ? [q, q] : p === "all" ? [n, 1] : [1, 1];
+      $('[data-in="w"]', b).value = w; $('[data-in="r"]', b).value = r; draw();
+    }));
+    $("[data-write]", b).onclick = write;
+    $("[data-read]", b).onclick = () => read(false);
+    $("[data-worst]", b).onclick = () => read(true);
+    draw();
+  };
+
+  /* ---------------- 14. Sharding strategies & hot keys ---------------- */
+  W.sharding = function (el) {
+    const b = frame(el, "Sharding: where does the load land?", `
+      <div class="w-row">${[["range", "Range (by user ID)"], ["hash", "Hash (hash % 4)"], ["dir", "Directory (lookup table)"]].map(([k, n], i) => `<button class="chip" data-s="${k}" aria-pressed="${i === 0}">${n}</button>`).join("")}</div>
+      <div class="w-row">
+        <label class="switch"><input type="checkbox" data-hot checked><span class="switch-track"><span class="switch-thumb"></span></span><span>Celebrity key: user 42 gets 30% of traffic</span></label>
+        <label class="switch"><input type="checkbox" data-new><span class="switch-track"><span class="switch-thumb"></span></span><span>Most traffic is from new sign-ups</span></label>
+      </div>
+      <div class="w-row" data-fix></div>
+      <div class="sh-shards" data-shards></div>
+      <div class="w-stats" data-stats></div>
+      <div class="w-note" data-note></div>`);
+    const N = 4, USERS = 1000, HOT = 42;
+    let strat = "range", salted = false, isolated = false;
+    const h = (k) => { let x = (k * 2654435761) >>> 0; x ^= x >>> 15; return x >>> 0; };
+    function shardOf(u) {
+      if (strat === "range") return Math.min(N - 1, Math.floor((u - 1) / (USERS / N)));
+      if (strat === "hash") return h(u) % N;
+      if (u === HOT && isolated) return N; // dedicated shard
+      return h(u) % N;
+    }
+    function draw() {
+      const hot = $("[data-hot]", b).checked, fresh = $("[data-new]", b).checked;
+      const shards = strat === "dir" && isolated ? N + 1 : N;
+      const load = Array(shards).fill(0), keys = Array(shards).fill(0);
+      for (let u = 1; u <= USERS; u++) {
+        let w = fresh ? (u > USERS * 0.9 ? 8 : 0.2) : 1;
+        keys[shardOf(u)]++;
+        if (u === HOT && hot) continue;
+        load[shardOf(u)] += w;
+      }
+      const base = load.reduce((a, c) => a + c, 0);
+      if (hot) {
+        const hotLoad = (base * 0.3) / 0.7;
+        if (strat === "hash" && salted) for (let i = 0; i < N; i++) load[i] += hotLoad / N;
+        else load[shardOf(HOT)] += hotLoad;
+      }
+      const total = load.reduce((a, c) => a + c, 0), max = Math.max(...load), avg = total / shards;
+      $("[data-shards]", b).innerHTML = load.map((l, i) => {
+        const pct = (l / total) * 100, over = l / avg;
+        return `<div class="sh-shard${over > 1.6 ? " hot" : ""}"><div class="sh-name">${i === N ? "Shard 5 (dedicated)" : "Shard " + (i + 1)}</div>
+          <div class="sh-meter"><i style="height:${Math.max(3, (l / max) * 100)}%"></i></div>
+          <div class="sh-pct">${pct.toFixed(0)}%</div><div class="w-note">${keys[i]} users${strat === "range" && i < N ? `<br>IDs ${i * 250 + 1}–${(i + 1) * 250}` : ""}</div></div>`;
+      }).join("");
+      $("[data-stats]", b).innerHTML = `<div class="w-stat${max / avg > 1.6 ? "" : " hl"}"><div class="k">Busiest shard vs average</div><div class="v ${max / avg > 1.6 ? "bad" : "ok"}">${(max / avg).toFixed(2)}×</div><div class="s">1.00× = perfectly even</div></div>`;
+      const fix = $("[data-fix]", b);
+      fix.innerHTML = strat === "hash" ? `<label class="switch"><input type="checkbox" data-salt ${salted ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span>Salt the hot key (42#0…42#3 spread over all shards)</span></label>`
+        : strat === "dir" ? `<button class="btn sm" data-iso>${isolated ? "Undo: put user 42 back" : "Move user 42 to its own shard"}</button>` : "";
+      const s = $("[data-salt]", fix); if (s) s.onchange = (e) => { salted = e.target.checked; draw(); };
+      const iso = $("[data-iso]", fix); if (iso) iso.onclick = () => { isolated = !isolated; draw(); };
+      $("[data-note]", b).textContent = {
+        range: "Range sharding keeps nearby IDs together, which makes range queries easy, but new sign-ups all land on the last shard and a hot key overloads its whole range.",
+        hash: "Hashing spreads users evenly and fixes the new-sign-up hotspot, but range queries must hit every shard, and one celebrity key still lands on a single shard unless you salt it.",
+        dir: "A lookup table can place any key anywhere, so you can give a celebrity its own shard. The cost: every request needs a lookup, and the directory must be highly available and cached.",
+      }[strat];
+    }
+    $$("[data-s]", b).forEach((c) => c.addEventListener("click", () => { strat = c.dataset.s; $$("[data-s]", b).forEach((x) => x.setAttribute("aria-pressed", String(x === c))); draw(); }));
+    $$("[data-hot], [data-new]", b).forEach((i) => i.addEventListener("change", draw));
+    draw();
+  };
 })();
