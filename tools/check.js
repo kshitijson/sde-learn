@@ -13,7 +13,7 @@ vm.runInContext(fs.readFileSync(path.join(root, "assets/js/registry.js"), "utf8"
 const pages = ctx.window.SD_PAGES;
 
 const LANGS = ["java", "python", "cpp", "javascript", "go"];
-const WIDGETS = ["estimator", "latency", "nines", "lb-sim", "cache-sim", "rate-limiter", "hash-ring", "snowflake", "base62", "fanout", "handshake", "polling", "quorum", "sharding"];
+const WIDGETS = ["estimator", "latency", "nines", "lb-sim", "cache-sim", "rate-limiter", "hash-ring", "snowflake", "base62", "fanout", "handshake", "polling", "quorum", "sharding", "race", "elevator"];
 const VOID = new Set(["br", "hr", "img", "input", "meta", "link", "wbr", "col", "source"]);
 const SVG_SELF = /\/\s*>$/;
 

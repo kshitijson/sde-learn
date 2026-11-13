@@ -737,4 +737,142 @@
     $$("[data-hot], [data-new]", b).forEach((i) => i.addEventListener("change", draw));
     draw();
   };
+
+  /* ---------------- 15. Race condition stepper ---------------- */
+  W.race = function (el) {
+    const PROGS = {
+      none: [["read", "local = counter"], ["add", "local = local + 1"], ["write", "counter = local"]],
+      lock: [["lock", "lock.acquire()"], ["read", "local = counter"], ["add", "local = local + 1"], ["write", "counter = local"], ["unlock", "lock.release()"]],
+      atomic: [["cas", "counter.incrementAndGet()  // one indivisible step"]],
+    };
+    const NAMES = { none: "No lock", lock: "Mutex / lock", atomic: "Atomic (CAS)" };
+    const b = frame(el, "Race condition: two threads run counter++ once each", `
+      <div class="w-row">${Object.entries(NAMES).map(([k, n], i) => `<button class="chip" data-mode="${k}" aria-pressed="${i === 0}">${n}</button>`).join("")}</div>
+      <div class="rc-grid">
+        <div class="rc-thread" data-t="0"></div>
+        <div class="rc-shared"><span class="w-note">shared</span><b>counter</b><div class="rc-counter" data-counter>0</div><div class="rc-lock" data-lock></div></div>
+        <div class="rc-thread" data-t="1"></div>
+      </div>
+      <div class="w-row"><button class="btn sm" data-step="0">Step Thread A</button><button class="btn sm" data-step="1">Step Thread B</button>
+        <button class="btn sm primary" data-worst>▶ Play the unlucky interleaving</button><button class="btn sm" data-reset>Reset</button></div>
+      <div class="rc-result" data-result></div>
+      <div class="w-log" data-log></div>
+      <hr style="border:0;border-top:1px solid var(--border)">
+      <div class="w-row"><button class="btn sm" data-bulk>Run 2 threads × 10,000 increments (random scheduling)</button></div>
+      <div class="w-stats" data-bulkout></div>`);
+    let mode = "none", st, timer = null;
+    function reset() { clearInterval(timer); st = { pc: [0, 0], local: [null, null], counter: 0, owner: null, log: [] }; draw(); }
+    const prog = () => PROGS[mode];
+    function step(t) {
+      const p = prog(); if (st.pc[t] >= p.length) return "done";
+      const [op] = p[st.pc[t]], name = t ? "B" : "A";
+      if (op === "lock") { if (st.owner !== null && st.owner !== t) { st.log.push(`<span class="warnc">Thread ${name} waits: lock is held by ${st.owner ? "B" : "A"}</span>`); draw(); return "blocked"; } st.owner = t; st.log.push(`Thread ${name} acquires the lock`); }
+      if (op === "read") { st.local[t] = st.counter; st.log.push(`Thread ${name} reads counter → local = ${st.counter}`); }
+      if (op === "add") { st.local[t]++; st.log.push(`Thread ${name} computes local = ${st.local[t]}`); }
+      if (op === "write") { st.counter = st.local[t]; st.log.push(`Thread ${name} writes counter = ${st.counter}`); }
+      if (op === "unlock") { st.owner = null; st.log.push(`Thread ${name} releases the lock`); }
+      if (op === "cas") { st.counter++; st.log.push(`Thread ${name} atomically increments → counter = ${st.counter}`); }
+      st.pc[t]++; draw(); return "ok";
+    }
+    function draw() {
+      const p = prog();
+      [0, 1].forEach((t) => {
+        const box = $(`[data-t="${t}"]`, b), doneT = st.pc[t] >= p.length;
+        box.innerHTML = `<div class="rc-head"><b>Thread ${t ? "B" : "A"}</b><span class="w-note">local = ${st.local[t] ?? "–"}</span></div>` +
+          p.map(([, code], i) => `<div class="rc-line${i === st.pc[t] ? " cur" : ""}${i < st.pc[t] ? " done" : ""}">${esc(code)}</div>`).join("") +
+          (doneT ? '<div class="rc-line ok">✓ finished</div>' : "");
+      });
+      $("[data-counter]", b).textContent = st.counter;
+      $("[data-lock]", b).textContent = mode === "lock" ? (st.owner === null ? "🔓 lock free" : `🔒 held by ${st.owner ? "B" : "A"}`) : "";
+      const both = st.pc[0] >= p.length && st.pc[1] >= p.length;
+      $("[data-result]", b).innerHTML = both ? (st.counter === 2 ? '<span class="ok"><b>✓ counter = 2.</b> Both increments survived.</span>'
+        : `<span class="bad"><b>✗ counter = ${st.counter}, expected 2.</b> One update was lost: both threads read the same old value before either wrote.</span>`) : "";
+      $("[data-log]", b).innerHTML = st.log.length ? st.log.map((l, i) => `<div>${i + 1}. ${l}</div>`).join("") : '<div class="w-note">Step the threads in any order, or play the unlucky interleaving.</div>';
+      const lg = $("[data-log]", b); lg.scrollTop = lg.scrollHeight;
+    }
+    $$("[data-mode]", b).forEach((c) => c.addEventListener("click", () => { mode = c.dataset.mode; $$("[data-mode]", b).forEach((x) => x.setAttribute("aria-pressed", String(x === c))); reset(); }));
+    $$("[data-step]", b).forEach((c) => c.addEventListener("click", () => step(+c.dataset.step)));
+    $("[data-reset]", b).onclick = reset;
+    $("[data-worst]", b).onclick = () => {
+      reset(); let turn = 0;
+      timer = setInterval(() => {
+        if (!el.isConnected) return clearInterval(timer);
+        const p = prog(); if (st.pc[0] >= p.length && st.pc[1] >= p.length) return clearInterval(timer);
+        let r = step(turn); if (r !== "ok") { turn = 1 - turn; r = step(turn); }
+        turn = 1 - turn;
+      }, 650);
+    };
+    $("[data-bulk]", b).onclick = () => {
+      const N = 10000, p = prog(); let c = 0, owner = null; const pc = [0, 0], loc = [0, 0], left = [N, N];
+      let guard = 0;
+      while ((left[0] || left[1]) && guard++ < 1e7) {
+        const t = left[0] && left[1] ? (Math.random() < 0.5 ? 0 : 1) : left[0] ? 0 : 1;
+        const op = p[pc[t]][0];
+        if (op === "lock") { if (owner !== null && owner !== t) continue; owner = t; }
+        else if (op === "read") loc[t] = c; else if (op === "add") loc[t]++; else if (op === "write") c = loc[t];
+        else if (op === "unlock") owner = null; else if (op === "cas") c++;
+        pc[t]++; if (pc[t] >= p.length) { pc[t] = 0; left[t]--; }
+      }
+      $("[data-bulkout]", b).innerHTML = `<div class="w-stat"><div class="k">Expected</div><div class="v">${(2 * N).toLocaleString()}</div></div>
+        <div class="w-stat hl"><div class="k">Got (${NAMES[mode]})</div><div class="v ${c === 2 * N ? "ok" : "bad"}">${c.toLocaleString()}</div></div>
+        <div class="w-stat"><div class="k">Lost updates</div><div class="v">${(2 * N - c).toLocaleString()}</div></div>`;
+    };
+    onDetach(el, () => clearInterval(timer));
+    reset();
+  };
+
+  /* ---------------- 16. Elevator scheduling ---------------- */
+  W.elevator = function (el) {
+    const TOP = 19;
+    const presets = { "Office morning": "12, 3, 17, 5, 9, 1, 15", "Two clusters": "2, 18, 3, 17, 4, 16", "Mostly above": "8, 14, 11, 19, 13, 2" };
+    const b = frame(el, "Elevator scheduling: FCFS vs SSTF vs SCAN vs LOOK", `
+      <div class="w-row">${Object.keys(presets).map((k, i) => `<button class="chip" data-preset="${k}" aria-pressed="${i === 0}">${k}</button>`).join("")}</div>
+      <div class="w-controls">
+        <label class="w-field">Requested floors (0–${TOP}, in arrival order)<input class="w-input" data-req></label>
+        ${slider("start", "Elevator starts at floor", 0, TOP, 1, 7)}
+      </div>
+      <div class="w-row">${[["fcfs", "FCFS"], ["sstf", "SSTF (nearest)"], ["scan", "SCAN"], ["look", "LOOK"]].map(([k, n], i) => `<button class="chip" data-alg="${k}" aria-pressed="${k === "look"}">${n}</button>`).join("")}
+        <span class="w-note">starts moving up</span></div>
+      <div class="el-wrap" data-svg></div>
+      <div class="w-note" data-order></div>
+      <div class="table-wrap"><table data-table></table></div>`);
+    let alg = "look";
+    function plan(a, start, reqs) {
+      let pos = start, path = [start], pending = reqs.slice();
+      const go = (f) => { if (f !== pos) { path.push(f); pos = f; } };
+      if (a === "fcfs") pending.forEach(go);
+      else if (a === "sstf") { while (pending.length) { pending.sort((x, y) => Math.abs(x - pos) - Math.abs(y - pos) || x - y); go(pending.shift()); } }
+      else {
+        const up = pending.filter((f) => f >= pos).sort((x, y) => x - y), down = pending.filter((f) => f < pos).sort((x, y) => y - x);
+        up.forEach(go);
+        if (down.length) { if (a === "scan" && pos !== TOP) go(TOP); down.forEach(go); }
+      }
+      let dist = 0; for (let i = 1; i < path.length; i++) dist += Math.abs(path[i] - path[i - 1]);
+      return { path, dist };
+    }
+    function parse() { return $("[data-req]", b).value.split(/[\s,]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= TOP); }
+    function draw() {
+      const start = +$('[data-in="start"]', b).value, reqs = parse();
+      $('[data-out="start"]', b).textContent = start;
+      const r = plan(alg, start, reqs), W0 = 40, W1 = 640, H = 230, y = (f) => 14 + (TOP - f) * ((H - 28) / TOP);
+      const x = (i) => W0 + (r.path.length > 1 ? (i / (r.path.length - 1)) * (W1 - W0) : 0);
+      let svg = `<svg viewBox="0 0 660 ${H}" class="el-svg">`;
+      for (let f = 0; f <= TOP; f += 5) svg += `<line x1="${W0}" y1="${y(f)}" x2="${W1}" y2="${y(f)}" class="el-grid"/><text x="${W0 - 8}" y="${y(f) + 4}" class="s-muted" text-anchor="end">${f}</text>`;
+      reqs.forEach((f) => (svg += `<line x1="${W0}" y1="${y(f)}" x2="${W1}" y2="${y(f)}" class="el-req"/>`));
+      svg += `<polyline points="${r.path.map((f, i) => `${x(i).toFixed(1)},${y(f).toFixed(1)}`).join(" ")}" class="el-path"/>`;
+      r.path.forEach((f, i) => (svg += `<circle cx="${x(i).toFixed(1)}" cy="${y(f).toFixed(1)}" r="${i ? 4.5 : 6}" class="${i ? "el-stop" : "el-start"}"><title>floor ${f}</title></circle>`));
+      $("[data-svg]", b).innerHTML = svg + "</svg>";
+      $("[data-order]", b).innerHTML = `Visit order: <b>${r.path.join(" → ")}</b>`;
+      const all = { fcfs: "FCFS", sstf: "SSTF", scan: "SCAN", look: "LOOK" };
+      const res = Object.entries(all).map(([k, n]) => [k, n, plan(k, start, reqs).dist]), best = Math.min(...res.map((x) => x[2]));
+      $("[data-table]", b).innerHTML = `<thead><tr><th>Algorithm</th><th>Floors travelled</th><th>Notes</th></tr></thead><tbody>${res.map(([k, n, d]) =>
+        `<tr${k === alg ? ' class="hs-cur"' : ""}><td>${n}</td><td>${d}${d === best ? " ✓" : ""}</td><td>${{ fcfs: "Fair, but zig-zags", sstf: "Short trips, can starve far floors", scan: "Sweeps to the top floor before turning", look: "Like SCAN, turns at the last request" }[k]}</td></tr>`).join("")}</tbody>`;
+    }
+    $("[data-req]", b).value = presets["Office morning"];
+    $("[data-req]", b).addEventListener("input", () => { $$("[data-preset]", b).forEach((x) => x.setAttribute("aria-pressed", "false")); draw(); });
+    $('[data-in="start"]', b).addEventListener("input", draw);
+    $$("[data-preset]", b).forEach((c) => c.addEventListener("click", () => { $("[data-req]", b).value = presets[c.dataset.preset]; $$("[data-preset]", b).forEach((x) => x.setAttribute("aria-pressed", String(x === c))); draw(); }));
+    $$("[data-alg]", b).forEach((c) => c.addEventListener("click", () => { alg = c.dataset.alg; $$("[data-alg]", b).forEach((x) => x.setAttribute("aria-pressed", String(x === c))); draw(); }));
+    draw();
+  };
 })();
